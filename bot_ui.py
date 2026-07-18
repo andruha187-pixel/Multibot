@@ -12,7 +12,9 @@ router = Router()
 class CopyStates(StatesGroup):
     input_address = State()
 
-# Генератор 20 уникальных кошельков для тестов
+# =====================================================================
+# ГЕНЕРАТОР ТЕСТОВОЙ БАЗЫ ДАННЫХ (20 УНИКАЛЬНЫХ КОШЕЛЬКОВ)
+# =====================================================================
 def generate_mock_wallets(category_prefix, search_type):
     wallets = []
     for i in range(1, 21):
@@ -36,7 +38,6 @@ def generate_mock_wallets(category_prefix, search_type):
             })
     return wallets
 
-# Сборка базы данных
 MARKET_DATA = {}
 for cat in ["crypto", "politics", "sports", "esports", "finance", "economy", "weather"]:
     MARKET_DATA[cat] = {
@@ -62,7 +63,7 @@ async def menu_main_handler(cb: CallbackQuery):
     await cb.message.edit_text("Выберите нужный инструмент:", reply_markup=get_main_keyboard())
 
 # =====================================================================
-# МОДУЛЬ ПОИСКА И СКАНИРОВАНИЯ
+# МОДУЛЬ ПОИСКА И СКАНИРОВАНИЯ (ИСПРАВЛЕН РЕГИСТР БУКВ)
 # =====================================================================
 
 @router.callback_query(F.data == "menu_search")
@@ -80,7 +81,7 @@ async def menu_search_handler(cb: CallbackQuery):
 @router.callback_query(F.data.startswith("cat_"))
 async def category_handler(cb: CallbackQuery):
     await cb.answer()
-    category = cb.data.split("_")[1]
+    category = cb.data.split("_")[1].lower() # Защита: переводим в нижний регистр
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚀 АВТОПОИСК (Идеальный фильтр)", callback_data=f"autosearch_{category}")],
         [InlineKeyboardButton(text="🔥 ФЛИП (Разгон $100)", callback_data=f"flipsearch_{category}")],
@@ -90,14 +91,18 @@ async def category_handler(cb: CallbackQuery):
     await cb.message.edit_text(f"Категория: {category.upper()}\nВыберите стратегию поиска:", reply_markup=kb)
 
 # =====================================================================
-# ВЫВОД РЕЗУЛЬТАТОВ (ПО 20 КОШЕЛЬКОВ)
+# ВЫВОД РЕЗУЛЬТАТОВ ПОИСКА (ПАНЕЛЬ НА 20 КОШЕЛЬКОВ)
 # =====================================================================
 
 @router.callback_query(F.data.startswith("flipsearch_"))
 async def flipsearch_execute(cb: CallbackQuery):
-    category = cb.data.split("_")[1]
+    category = cb.data.split("_")[1].lower() # Фикс регистра для поиска в словаре
     await cb.answer()
     
+    if category not in MARKET_DATA:
+        await cb.message.answer("❌ Категория не найдена в базе данных.")
+        return
+        
     wallets = MARKET_DATA[category]["flip"]
     report = f"🔥 **РЕЗУЛЬТАТЫ «ФЛИП» ({category.upper()}) — ТОП 20**\n\n"
     
@@ -111,7 +116,7 @@ async def flipsearch_execute(cb: CallbackQuery):
         short_id = w['address'][-8:]
         cb.message.conf[short_id] = w['address']
         
-        row.append(InlineKeyboardButton(text=f"➕ Копировать #{i}", callback_data=f"addcopy_{w['name']}_{short_id}"))
+        row.append(InlineKeyboardButton(text=f"➕ Копи #{i}", callback_data=f"addcopy_{w['name']}_{short_id}"))
         if len(row) == 2:
             kb_list.append(row)
             row = []
@@ -124,9 +129,13 @@ async def flipsearch_execute(cb: CallbackQuery):
 
 @router.callback_query(F.data.startswith("autosearch_"))
 async def autosearch_execute(cb: CallbackQuery):
-    category = cb.data.split("_")[1]
+    category = cb.data.split("_")[1].lower() # Фикс регистра для поиска в словаре
     await cb.answer()
     
+    if category not in MARKET_DATA:
+        await cb.message.answer("❌ Категория не найдена в базе данных.")
+        return
+        
     wallets = MARKET_DATA[category]["auto"]
     report = f"🤖 **АВТОПОИСК ({category.upper()}) — ТОП 20**\n\n"
     
@@ -140,7 +149,7 @@ async def autosearch_execute(cb: CallbackQuery):
         short_id = w['address'][-8:]
         cb.message.conf[short_id] = w['address']
         
-        row.append(InlineKeyboardButton(text=f"➕ Копировать #{i}", callback_data=f"addcopy_{w['name']}_{short_id}"))
+        row.append(InlineKeyboardButton(text=f"➕ Копи #{i}", callback_data=f"addcopy_{w['name']}_{short_id}"))
         if len(row) == 2:
             kb_list.append(row)
             row = []
@@ -155,12 +164,15 @@ async def autosearch_execute(cb: CallbackQuery):
 async def filters_execute(cb: CallbackQuery):
     await cb.answer()
     parts = cb.data.split("_")
-    report = MARKET_DATA[parts[2]][parts[1]]
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data=f"cat_{parts[2]}")]] )
+    strategy = parts[1].lower()
+    category = parts[2].lower()
+    
+    report = MARKET_DATA[category][strategy]
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data=f"cat_{category}")]])
     await cb.message.edit_text(report, reply_markup=kb, parse_mode="Markdown")
 
 # =====================================================================
-# УПРАВЛЕНИЕ КОПИТРЕЙДИНГОМ
+# МОДУЛЬ КОПИТРЕЙДИНГА (БЕЗ УПОМИНАНИЯ ETHEREUM)
 # =====================================================================
 
 @router.callback_query(F.data == "menu_copy")
@@ -199,7 +211,8 @@ async def view_active_wallets_handler(cb: CallbackQuery):
 async def add_manual_handler(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
     await state.set_state(CopyStates.input_address)
-    await cb.message.answer("📥 Отправьте в чат Ethereum (Polygon) адрес кошелька, который вы хотите копировать:")
+    # Исправлено: Спрашиваем только про Polygon (Polymarket) кошелек
+    await cb.message.answer("📥 Отправьте в чат Polygon адрес кошелька Polymarket, который вы хотите копировать:")
 
 @router.message(CopyStates.input_address)
 async def process_manual_address(message: Message, state: FSMContext):
@@ -231,4 +244,3 @@ async def toggle_auto_handler(cb: CallbackQuery):
     new_val = 0 if s["auto_orders"] else 1
     await update_settings(cb.from_user.id, "auto_orders", new_val)
     await menu_copy_handler(cb)
-            
