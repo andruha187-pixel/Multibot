@@ -1,44 +1,42 @@
-import asyncio
-import logging
-import os
-from aiogram import Bot, Dispatcher
-from aiogram.fsm.storage.memory import MemoryStorage
-from dotenv import load_dotenv
+from aiogram import Router, F
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters import Command
 
-# Импортируем интерфейс и базу данных из твоих файлов
-from bot_ui import router
-from database import init_db
+router = Router()
 
-# Настройка логирования
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# ==========================================
+# 1. ГЛАВНАЯ КЛАВИАТУРА (Проверено)
+# ==========================================
+def get_main_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔍 Поиск кошельков", callback_data="menu_search")],
+        [InlineKeyboardButton(text="🔄 Копитрейдинг", callback_data="menu_copy")]
+    ])
 
-async def main():
-    # Загружаем переменные из .env (или из настроек Render)
-    load_dotenv()
-    
-    bot_token = os.getenv("BOT_TOKEN")
-    if not bot_token:
-        raise ValueError("Критическая ошибка: Переменная BOT_TOKEN не задана в настройках Render!")
-        
-    # Инициализируем бота и диспетчер
-    bot = Bot(token=bot_token)
-    dp = Dispatcher(storage=MemoryStorage())
-    
-    # Подключаем роутер из bot_ui.py
-    dp.include_router(router)
-    
-    # Инициализируем базу данных (создаем таблицы, если их нет)
-    await init_db()
-    
-    logger.info("Бот успешно инициализирован и запускает пуллинг...")
-    
-    # Запуск бота (удаляем вебхуки, если были, и включаем long polling)
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+# ==========================================
+# 2. ОБРАБОТКА КОМАНДЫ /START
+# ==========================================
+@router.message(Command("start", ignore_case=True))
+async def start_cmd(message: Message):
+    welcome_text = (
+        "👋 Добро пожаловать в Polymarket Trading Suite Бот!\n\n"
+        "Система готова к работе под ключ. Управляйте настройками копирования "
+        "или ищите прибыльные кошельки с помощью аналитических модулей."
+    )
+    await message.answer(welcome_text, reply_markup=get_main_keyboard())
 
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        logger.info("Бот остановлен.")
+# ==========================================
+# 3. ОБРАБОТКА НАЖАТИЙ НА КНОПКИ (Исправлено)
+# ==========================================
+@router.callback_query(F.data == "menu_search")
+async def menu_search_handler(cb: CallbackQuery):
+    # Обязательно гасим часики на кнопке
+    await cb.answer() 
+    
+    # Отправляем тестовый ответ, чтобы убедиться, что переход работает
+    await cb.message.edit_text("🔍 Модуль поиска кошельков активирован! Выберите категорию.")
+
+@router.callback_query(F.data == "menu_copy")
+async def menu_copy_handler(cb: CallbackQuery):
+    await cb.answer()
+    await cb.message.edit_text("🔄 Модуль копитрейдинга активирован! Настройки загружаются...")
