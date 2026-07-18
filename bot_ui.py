@@ -1,6 +1,8 @@
 import logging
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters import Command
+from database import get_settings, update_settings
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -12,53 +14,54 @@ router = Router()
 def get_main_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔍 Поиск кошельков", callback_data="menu_search")],
-        [InlineKeyboardButton(text="🔄 Копитрейдинг", callback_data="menu_copy")],
-        [InlineKeyboardButton(text="💰 Профиль / Подписка", callback_data="menu_profile")]
+        [InlineKeyboardButton(text="🔄 Копитрейдинг", callback_data="menu_copy")]
     ])
 
-@router.message(F.text == "/start")
+@router.message(Command("start"))
 async def start_cmd(message: Message):
     logger.info(f"User {message.from_user.id} triggered /start")
     await message.answer(
-        "👋 Добро пожаловать!\n\nВыберите нужный модуль для работы:",
+        "👋 Добро пожаловать в Polymarket Trading Suite Бот!\nВыберите нужный инструмент:", 
         reply_markup=get_main_keyboard()
     )
 
 @router.callback_query(F.data == "menu_main")
-async def back_to_main_menu_handler(cb: CallbackQuery):
+async def menu_main_handler(cb: CallbackQuery):
     await cb.answer()
-    await cb.message.edit_text(
-        "👋 Главное меню.\n\nВыберите нужный модуль для работы:",
-        reply_markup=get_main_keyboard()
-    )
+    await cb.message.edit_text("Выберите нужный инструмент:", reply_markup=get_main_keyboard())
 
 # =====================================================================
-# МОДУЛЬ ПОИСКА И КАТЕГОРИИ
+# МОДУЛЬ ПОИСКА: ТВОИ 7 КАТЕГОРИЙ POLYMARKET
 # =====================================================================
-
-def get_search_categories_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        # Передаем cat_top и cat_whales, чтобы попасть в меню стратегий
-        [InlineKeyboardButton(text="🔥 Топ трейдеры", callback_data="cat_top")],
-        [InlineKeyboardButton(text="🐋 Активность китов", callback_data="cat_whales")],
-        [InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="menu_main")]
-    ])
 
 @router.callback_query(F.data == "menu_search")
 async def menu_search_handler(cb: CallbackQuery):
     await cb.answer()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🪙 Крипта", callback_data="cat_crypto"), 
+         InlineKeyboardButton(text="🏛 Политика", callback_data="cat_politics")],
+        [InlineKeyboardButton(text="⚽️ Спорт LIVE", callback_data="cat_sports"), 
+         InlineKeyboardButton(text="🎮 Киберспорт", callback_data="cat_esports")],
+        [InlineKeyboardButton(text="📈 Финансы", callback_data="cat_finance"), 
+         InlineKeyboardButton(text="📊 Экономика", callback_data="cat_economy")],
+        [InlineKeyboardButton(text="☀️ Погода", callback_data="cat_weather")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="menu_main")]
+    ])
     await cb.message.edit_text(
-        "🔍 Модуль поиска кошельков активирован!\n\n"
-        "Выберите категорию для анализа рынков Polymarket:",
-        reply_markup=get_search_categories_keyboard()
+        "🔍 Выберите категорию Polymarket для сканирования и аналитики кошельков:", 
+        reply_markup=kb
     )
 
-# Твой первичный хэндлер (исправлена ошибка callback_query_data -> callback_data)
+# =====================================================================
+# ТВОЙ КОД: МЕНЮ ВНУТРИ КАТЕГОРИИ (Исправлен синтаксис callback_data)
+# =====================================================================
+
 @router.callback_query(F.data.startswith("cat_"))
 async def category_handler(cb: CallbackQuery):
-    await cb.answer()
+    await cb.answer()  # Убирает зависание кнопки
     category = cb.data.split("_")[1]
     
+    # Исправлено: callback_query_data -> callback_data
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚀 АВТОПОИСК (Идеальный фильтр)", callback_data=f"autosearch_{category}")],
         [InlineKeyboardButton(text="🔥 ФЛИП (Разгон $100)", callback_data=f"flipsearch_{category}")],
@@ -69,10 +72,9 @@ async def category_handler(cb: CallbackQuery):
     await cb.message.edit_text(f"Категория: {category.upper()}\nВыберите стратегию поиска:", reply_markup=kb)
 
 # =====================================================================
-# СТРАТЕГИИ ПОИСКА (ФЛИП / АВТОПОИСК / ФИЛЬТРЫ)
+# ТВОЙ КОД: ОБРАБОТЧИК КНОПКИ ФЛИП (Вывод отчета со снайперами)
 # =====================================================================
 
-# Твой обработчик кнопки Флип
 @router.callback_query(F.data.startswith("flipsearch_"))
 async def flipsearch_execute(cb: CallbackQuery):
     category = cb.data.split("_")[1]
@@ -97,33 +99,43 @@ async def flipsearch_execute(cb: CallbackQuery):
     ])
     await cb.message.edit_text(report, reply_markup=kb, parse_mode="Markdown")
 
-# Заглушки для автопоиска и остальных фильтров, чтобы бот не зависал при нажатии
-@router.callback_query(F.data.startswith("autosearch_"))
-@router.callback_query(F.data.startswith("filter_"))
-async def mock_filters_handler(cb: CallbackQuery):
-    action = cb.data.split("_")[0]
-    await cb.answer(f"Запуск фильтра: {action}. Поиск активен...", show_alert=True)
-
-@router.callback_query(F.data.startswith("mock_add_"))
-async def mock_copy_add_handler(cb: CallbackQuery):
-    await cb.answer("✅ Кошелек успешно добавлен в модуль копитрейдинга!", show_alert=True)
-
 # =====================================================================
-# ОСТАЛЬНЫЕ МОДУЛИ (КОПИТРЕЙДИНГ И ПРОФИЛЬ)
+# МОДУЛЬ КОПИТРЕЙДИНГА С НАСТРОЙКАМИ И РУБИЛЬНИКОМ (KILL SWITCH)
 # =====================================================================
 
 @router.callback_query(F.data == "menu_copy")
 async def menu_copy_handler(cb: CallbackQuery):
     await cb.answer()
+    s = await get_settings(cb.from_user.id)
+    auto_status = "🟢 ВКЛ" if s["auto_orders"] else "🔴 ВЫКЛ"
+    
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="menu_main")]
+        [InlineKeyboardButton(text=f"Авто-ордера: {auto_status}", callback_data="toggle_auto")],
+        [InlineKeyboardButton(text=f"Слиппедж: {s['slippage']}%", callback_data="set_slippage")],
+        [InlineKeyboardButton(text=f"Доля от сделки: {s['value']}%", callback_data="set_value")],
+        [InlineKeyboardButton(text=f"💳 Демо-баланс: ${s['demo_balance']:.2f}", callback_data="view_balance")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="menu_main")]
     ])
-    await cb.message.edit_text("🔄 Модуль копитрейдинга в разработке.", reply_markup=kb)
+    await cb.message.edit_text("⚙️ НАСТРОЙКИ КОПИТРЕЙДИНГА:", reply_markup=kb)
 
-@router.callback_query(F.data == "menu_profile")
-async def menu_profile_handler(cb: CallbackQuery):
-    await cb.answer()
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="menu_main")]
-    ])
-    await cb.message.edit_text("💰 Профиль и подписка: статус FREE.", reply_markup=kb)
+@router.callback_query(F.data == "toggle_auto")
+async def toggle_auto_handler(cb: CallbackQuery):
+    s = await get_settings(cb.from_user.id)
+    new_val = 0 if s["auto_orders"] else 1
+    await update_settings(cb.from_user.id, "auto_orders", new_val)
+    await menu_copy_handler(cb)
+
+# =====================================================================
+# ЗАГЛУШКИ ДЛЯ ОСТАЛЬНЫХ КНОПОК
+# =====================================================================
+
+@router.callback_query(F.data.startswith("autosearch_"))
+@router.callback_query(F.data.startswith("filter_"))
+async def mock_filters_handler(cb: CallbackQuery):
+    action = cb.data.split("_")[0]
+    await cb.answer(f"Запуск фильтра {action}. Идёт сбор статистики...", show_alert=True)
+
+@router.callback_query(F.data.startswith("mock_add_"))
+async def mock_copy_add_handler(cb: CallbackQuery):
+    await cb.answer("✅ Кошелек успешно добавлен в модуль копитрейдинга!", show_alert=True)
+    
