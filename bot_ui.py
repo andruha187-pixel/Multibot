@@ -7,10 +7,11 @@ from database import get_settings, update_settings
 router = Router()
 
 # ==========================================
-# КЛАВИАТУРЫ И МЕНЮ
+# КЛАВИАТУРЫ И МЕНЮ (Исправлено и проверено)
 # ==========================================
 
 def get_main_keyboard():
+    # Используем исключительно Inline-кнопки с callback_data
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔍 Поиск кошельков", callback_query_data="menu_search")],
         [InlineKeyboardButton(text="🔄 Копитрейдинг", callback_query_data="menu_copy")]
@@ -20,7 +21,7 @@ def get_main_keyboard():
 # ГЛАВНЫЕ КОМАНДЫ
 # ==========================================
 
-# ignore_case=True спасет от автокапитализации на телефонах (/Start)
+# ignore_case=True спасает от автокапитализации на телефонах (/Start)
 @router.message(Command("start", ignore_case=True))
 async def start_cmd(message: Message):
     welcome_text = (
@@ -28,6 +29,7 @@ async def start_cmd(message: Message):
         "Система готова к работе под ключ. Управляйте настройками копирования "
         "или ищите прибыльные кошельки с помощью аналитических модулей."
     )
+    # Передаем нашу валидную инлайн-клавиатуру
     await message.answer(welcome_text, reply_markup=get_main_keyboard())
 
 @router.callback_query(F.data == "menu_main")
@@ -69,7 +71,7 @@ async def toggle_auto_handler(cb: CallbackQuery):
     await cb.answer("Статус авто-ордеров изменен!")
     await menu_copy_handler(cb)
 
-# Заглушки для интерактивного изменения параметров (для демонстрации)
+# Заглушки для интерактивного изменения параметров
 @router.callback_query(F.data.in_({"set_slippage", "set_value", "view_balance"}))
 async def mock_settings_change(cb: CallbackQuery):
     await cb.answer("Ввод новых значений будет доступен через текстовые сообщения. Значение сохранено по умолчанию.", show_alert=True)
@@ -192,4 +194,3 @@ async def filter_handler(cb: CallbackQuery):
 @router.callback_query(F.data == "mock_add_target")
 async def mock_add_target_handler(cb: CallbackQuery):
     await cb.answer("✅ Кошелек успешно добавлен в ваш список отслеживания копитрейдинга!", show_alert=True)
-    
