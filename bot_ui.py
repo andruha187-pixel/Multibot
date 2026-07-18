@@ -20,7 +20,8 @@ def get_main_keyboard():
 # ГЛАВНЫЕ КОМАНДЫ
 # ==========================================
 
-@router.message(Command("start"))
+# ignore_case=True спасет от автокапитализации на телефонах (/Start)
+@router.message(Command("start", ignore_case=True))
 async def start_cmd(message: Message):
     welcome_text = (
         "👋 Добро пожаловать в Polymarket Trading Suite Бот!\n\n"
