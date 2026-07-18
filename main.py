@@ -1,42 +1,53 @@
-from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.filters import Command
+import asyncio
+import logging
+import os
+from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.memory import MemoryStorage
+from dotenv import load_dotenv
+from aiohttp import web  # Добавили встроенную библиотеку aiohttp
 
-router = Router()
+from bot_ui import router
+from database import init_db
 
-# ==========================================
-# 1. ГЛАВНАЯ КЛАВИАТУРА (Проверено)
-# ==========================================
-def get_main_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔍 Поиск кошельков", callback_data="menu_search")],
-        [InlineKeyboardButton(text="🔄 Копитрейдинг", callback_data="menu_copy")]
-    ])
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# ==========================================
-# 2. ОБРАБОТКА КОМАНДЫ /START
-# ==========================================
-@router.message(Command("start", ignore_case=True))
-async def start_cmd(message: Message):
-    welcome_text = (
-        "👋 Добро пожаловать в Polymarket Trading Suite Бот!\n\n"
-        "Система готова к работе под ключ. Управляйте настройками копирования "
-        "или ищите прибыльные кошельки с помощью аналитических модулей."
-    )
-    await message.answer(welcome_text, reply_markup=get_main_keyboard())
+# Хэндлер для проверки от Render (Health Check)
+async def handle_health(request):
+    return web.Response(text="Бот работает!")
 
-# ==========================================
-# 3. ОБРАБОТКА НАЖАТИЙ НА КНОПКИ (Исправлено)
-# ==========================================
-@router.callback_query(F.data == "menu_search")
-async def menu_search_handler(cb: CallbackQuery):
-    # Обязательно гасим часики на кнопке
-    await cb.answer() 
+async def main():
+    load_dotenv()
     
-    # Отправляем тестовый ответ, чтобы убедиться, что переход работает
-    await cb.message.edit_text("🔍 Модуль поиска кошельков активирован! Выберите категорию.")
+    token = os.getenv("BOT_TOKEN")
+    if not token:
+        logger.error("BOT_TOKEN не найден в настройках!")
+        return
 
-@router.callback_query(F.data == "menu_copy")
-async def menu_copy_handler(cb: CallbackQuery):
-    await cb.answer()
-    await cb.message.edit_text("🔄 Модуль копитрейдинга активирован! Настройки загружаются...")
+    bot = Bot(token=token)
+    dp = Dispatcher(storage=MemoryStorage())
+    dp.include_router(router)
+    
+    logger.info("Инициализация базы данных...")
+    await init_db()
+    
+    # --- Запуск веб-сервера-"заглушки" для Render ---
+    app = web.Application()
+    app.router.add_get('/', handle_health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    # Render автоматически передает нужный порт в переменную PORT
+    port = int(os.getenv("PORT", 10000)) 
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logger.info(f"Веб-заглушка запущена на порту {port}")
+    # -----------------------------------------------
+
+    logger.info("Бот запущен и готов к работе.")
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
+    
