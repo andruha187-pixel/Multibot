@@ -12,7 +12,7 @@ router = Router()
 class CopyStates(StatesGroup):
     input_address = State()
 
-# Генератор 20 уникальных кошельков для тестов (чтобы не раздувать файл на 5000 строк)
+# Генератор 20 уникальных кошельков для тестов
 def generate_mock_wallets(category_prefix, search_type):
     wallets = []
     for i in range(1, 21):
@@ -36,7 +36,7 @@ def generate_mock_wallets(category_prefix, search_type):
             })
     return wallets
 
-# Собираем полноценную базу
+# Сборка базы данных
 MARKET_DATA = {}
 for cat in ["crypto", "politics", "sports", "esports", "finance", "economy", "weather"]:
     MARKET_DATA[cat] = {
@@ -90,7 +90,7 @@ async def category_handler(cb: CallbackQuery):
     await cb.message.edit_text(f"Категория: {category.upper()}\nВыберите стратегию поиска:", reply_markup=kb)
 
 # =====================================================================
-# ВЫВОД РЕЗУЛЬТАТОВ (ГЕНЕРАЦИЯ ПО 20 КОШЕЛЬКОВ)
+# ВЫВОД РЕЗУЛЬТАТОВ (ПО 20 КОШЕЛЬКОВ)
 # =====================================================================
 
 @router.callback_query(F.data.startswith("flipsearch_"))
@@ -103,9 +103,8 @@ async def flipsearch_execute(cb: CallbackQuery):
     
     cb.message.conf = cb.message.conf if hasattr(cb.message, 'conf') else {}
     kb_list = []
-    
-    # Чтобы кнопки не занимали пол-экрана, выводим по 2 штуки в ряд
     row = []
+    
     for i, w in enumerate(wallets, 1):
         report += f"{i}. 👤 `{w['name']}`\n   • Вход: {w['price']} ({w['pot']})\n   • `{w['address']}`\n\n"
         
@@ -133,8 +132,8 @@ async def autosearch_execute(cb: CallbackQuery):
     
     cb.message.conf = cb.message.conf if hasattr(cb.message, 'conf') else {}
     kb_list = []
-    
     row = []
+    
     for i, w in enumerate(wallets, 1):
         report += f"{i}. 👤 `{w['name']}` | {w['metric']}\n   • `{w['address']}`\n\n"
         
@@ -157,7 +156,7 @@ async def filters_execute(cb: CallbackQuery):
     await cb.answer()
     parts = cb.data.split("_")
     report = MARKET_DATA[parts[2]][parts[1]]
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data=f"cat_{parts[2] Beverly}")]])
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data=f"cat_{parts[2]}")]] )
     await cb.message.edit_text(report, reply_markup=kb, parse_mode="Markdown")
 
 # =====================================================================
@@ -232,4 +231,4 @@ async def toggle_auto_handler(cb: CallbackQuery):
     new_val = 0 if s["auto_orders"] else 1
     await update_settings(cb.from_user.id, "auto_orders", new_val)
     await menu_copy_handler(cb)
-    
+            
