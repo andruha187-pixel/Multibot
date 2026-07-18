@@ -1,58 +1,74 @@
 import aiosqlite
-from config import DB_PATH
+import os
+
+DB_PATH = "bot_database.db"
 
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
-        # Таблица настроек копитрейдинга
-        await db.execute('''
-            CREATE TABLE IF NOT EXISTS copy_settings (
+        # Таблица основных настроек пользователя
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
                 user_id INTEGER PRIMARY KEY,
-                mode TEXT DEFAULT 'percent',
-                value REAL DEFAULT 10.0,
-                slippage REAL DEFAULT 1.0,
-                exit_strategy TEXT DEFAULT 'leader',
                 auto_orders INTEGER DEFAULT 0,
+                slippage REAL DEFAULT 1.0,
+                value REAL DEFAULT 10.0,
                 demo_balance REAL DEFAULT 10000.0
             )
-        ''')
-        # Таблица отслеживаемых кошельков
-        await db.execute('''
-            CREATE TABLE IF NOT EXISTS tracked_wallets (
+        """)
+        # Новая таблица для хранения добавленных адресов на копирование
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS copytrading_wallets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER,
-                address TEXT,
                 name TEXT,
+                address TEXT,
                 UNIQUE(user_id, address)
             )
-        ''')
-        # Таблица открытых демо-позиций
-        await db.execute('''
-            CREATE TABLE IF NOT EXISTS demo_positions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                wallet_address TEXT,
-                market_title TEXT,
-                outcome TEXT,
-                amount REAL,
-                entry_price REAL,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
+        """)
         await db.commit()
 
 async def get_settings(user_id: int):
     async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT mode, value, slippage, exit_strategy, auto_orders, demo_balance FROM copy_settings WHERE user_id = ?", (user_id,)) as cursor:
+        async with db.execute("SELECT auto_orders, slippage, value, demo_balance FROM settings WHERE user_id = ?", (user_id,)) as cursor:
             row = await cursor.fetchone()
             if row:
-                return {"mode": row[0], "value": row[1], "slippage": row[2], "exit_strategy": row[3], "auto_orders": row[4], "demo_balance": row[5]}
+                return {
+                    "auto_orders": row[0],
+                    "slippage": row[1],
+                    "value": row[2],
+                    "demo_balance": row[3]
+                }
             else:
-                await db.execute("INSERT INTO copy_settings (user_id) VALUES (?)", (user_id,))
+                # Если пользователя нет в базе, создаем дефолтные настройки
+                await db.execute("INSERT INTO settings (user_id) VALUES (?)", (user_id,))
                 await db.commit()
-                return {"mode": "percent", "value": 10.0, "slippage": 1.0, "exit_strategy": "leader", "auto_orders": 0, "demo_balance": 10000.0}
+                return {"auto_orders": 0, "slippage": 1.0, "value": 10.0, "demo_balance": 10000.0}
 
-async def update_settings(user_id: int, key: str, value):
+async def update_settings(user_id: int, field: str, value):
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(f"UPDATE copy_settings SET {key} = ? WHERE user_id = ?", (value, user_id))
+        # Проверяем существование записи
+        await get_settings(user_id)
+        await db.execute(f"UPDATE settings SET {field} = ? WHERE user_id = ?", (value, user_id))
         await db.commit()
-        
+
+# --- НОВЫЕ ФУНКЦИИ ДЛЯ РАБОТЫ С КОПИТРЕЙДИНГОМ ---
+
+async def add_to_copytrading(user_id: int, name: str, address: str):
+    """Добавляет кошелек для отслеживания в базу данных"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        try:
+            await db.execute(
+                "INSERT OR IGNORE INTO copytrading_wallets (user_id, name, address) VALUES (?, ?, ?)",
+                (user_id, name, address)
+            )
+            await db.commit()
+        except Exception as e:
+            print(f"Ошибка при добавлении адреса: {e}")
+
+async def get_active_copy_wallets(user_id: int):
+    """Возвращает список всех кошельков, добавленных пользователем"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT name, address FROM copytrading_wallets WHERE user_id = ?", (user_id,)) as cursor:
+            rows = await cursor.fetchall()
+            return [{"name": row[0], "address": row[1]} for row in rows]
+            
