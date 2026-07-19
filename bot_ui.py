@@ -62,7 +62,7 @@ async def category_handler(cb: CallbackQuery):
 # =====================================================================
 
 @router.callback_query(F.data.startswith("search_"))
-async def execute_search_handler(cb: CallbackQuery):
+async def execute_search_handler(cb: CallbackQuery, state: FSMContext):
     # Формат callback_data: search_тип_категория (например: search_auto_crypto)
     parts = cb.data.split("_")
     strategy_type = parts[1]
@@ -70,57 +70,97 @@ async def execute_search_handler(cb: CallbackQuery):
     
     await cb.answer("Загрузка данных из Polymarket API...", show_alert=False)
     
-    # Запрашиваем живые данные через наш парсер
-    wallets = await fetch_real_wallets(category, strategy_type)
-    
-    # Задаем заголовки для разных режимов
-    titles = {
-        "auto": f"🤖 **АВТОПОИСК ({category.upper()})**\nФильтр по стабильности и объему:\n\n",
-        "flip": f"🔥 **СТРАТЕГИЯ «ФЛИП» ({category.upper()})**\nРазгон баланса на мелких исходах:\n\n",
-        "pnl": f"📊 **ЛИДЕРБОРД ПО PnL ({category.upper()})**\nСамые прибыльные кошельки:\n\n",
-        "wr": f"🎯 **ЛИДЕРБОРД ПО WINRATE ({category.upper()})**\nМаксимальный процент побед:\n\n"
-    }
-    
-    report = titles.get(strategy_type, f"📋 **Результаты ({category.upper()}):**\n\n")
-    
-    if not wallets:
-        report += "❌ Не удалось получить данные или кошельки не соответствуют фильтрам стратегии в данный момент."
-        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data=f"cat_{category}")]])
-        await cb.message.edit_text(report, reply_markup=kb, parse_mode="Markdown")
-        return
+    try:
+        # Запрашиваем живые данные через наш парсер
+        wallets = await fetch_real_wallets(category, strategy_type)
+        
+        # Задаем заголовки для разных режимов
+        titles = {
+            "auto": f"🤖 **АВТОПОИСК ({category.upper()})**\nФильтр по стабильности и объему:\n\n",
+            "flip": f"🔥 **СТРАТЕГИЯ «ФЛИП» ({category.upper()})**\nРазгон баланса на мелких исходах:\n\n",
+            "pnl": f"📊 **ЛИДЕРБОРД ПО PnL ({category.upper()})**\nСамые прибыльные кошельки:\n\n",
+            "wr": f"🎯 **ЛИДЕРБОРД ПО WINRATE ({category.upper()})**\nМаксимальный процент побед:\n\n"
+        }
+        
+        report = titles.get(strategy_type, f"📋 **Результаты ({category.upper()}):**\n\n")
+        
+        if not wallets:
+            report += "❌ Не удалось получить данные или кошельки не соответствуют фильтрам стратегии в данный момент."
+            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data=f"cat_{category}")]])
+            await cb.message.edit_text(report, reply_markup=kb, parse_mode="Markdown")
+            return
 
-    # Инициализируем хранилище адресов в контексте сообщения, чтобы кнопки могли их прочитать
-    cb.message.conf = cb.message.conf if hasattr(cb.message, 'conf') else {}
-    kb_list = []
-    row = []
-    
-    for i, w in enumerate(wallets, 1):
-        name = w.get("name", f"Trader_{i}")
-        address = w.get("address", "0x")
+        kb_list = []
+        row = []
         
-        # Собираем красивую метрику в зависимости от того, что вернул парсер
-        if "price" in w and "pot" in w:
-            metric_line = f"Вход: {w['price']} | Потенциал: {w['pot']}"
-        else:
-            metric_line = w.get("metric", "Активен")
+        # Безопасно достаем текущие данные из FSM-состояния пользователя
+        state_data = await state.get_data()
+        address_storage = state_data.get("address_storage", {})
+        
+        for i, w in enumerate(wallets, 1):
+            name = w.get("name", f"Trader_{i}")
+            address = w.get("address", "0x")
             
-        report += f"{i}. 👤 `{name}`\n   • {metric_line}\n   • `{address}`\n\n"
-        
-        # Генерируем короткий хэш для callback кнопки (ограничение Telegram на длину данных в кнопке)
-        short_id = address[-8:]
-        cb.message.conf[short_id] = address
-        
-        # Добавляем кнопку добавления в копитрейдинг
-        row.append(InlineKeyboardButton(text=f"➕ Копировать #{i}", callback_data=f"addcopy_{name}_{short_id}"))
-        if len(row) == 2:
+            # Собираем красивую метрику в зависимости от того, что вернул парсер
+            if "price" in w and "pot" in w:
+                metric_line = f"Вход: {w['price']} | Потенциал: {w['pot']}"
+            else:
+                metric_line = w.get("metric", "Активен")
+                
+            report += f"{i}. 👤 `{name}`\n   • {metric_line}\n   • `{address}`\n\n"
+            
+            # Генерируем хэш адреса для кнопки
+            short_id = address[-8:]
+            address_storage[short_id] = address
+            
+            # Ограничиваем имя (в callback_data лимит 64 байта, длинные имена сломают бота)
+            short_name = name[:12] if len(name) > 12 else name
+            
+            # Добавляем кнопку добавления в копитрейдинг
+            row.append(InlineKeyboardButton(text=f"➕ Копировать #{i}", callback_data=f"addcopy_{short_name}_{short_id}"))
+            if len(row) == 2:
+                kb_list.append(row)
+                row = []
+                
+        if row:
             kb_list.append(row)
-            row = []
-            
-    if row:
-        kb_list.append(row)
 
-    kb_list.append([InlineKeyboardButton(text="🔙 Назад", callback_data=f"cat_{category}")])
-    await cb.message.edit_text(report, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_list), parse_mode="Markdown")
+        # Сохраняем обновленную карту адресов обратно в state
+        await state.update_data(address_storage=address_storage)
+
+        kb_list.append([InlineKeyboardButton(text="🔙 Назад", callback_data=f"cat_{category}")])
+        await cb.message.edit_text(report, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_list), parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Ошибка в execute_search_handler: {e}", exc_info=True)
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 К категориям", callback_data="menu_search")]])
+        await cb.message.edit_text("⚠️ Произошла ошибка при генерации списка кошельков. Пожалуйста, попробуйте открыть категорию заново.", reply_markup=kb)
+
+# =====================================================================
+# ДОБАВЛЕНИЕ В КОПИТРЕЙДИНГ ИЗ СПИСКА
+# =====================================================================
+
+@router.callback_query(F.data.startswith("addcopy_"))
+async def add_to_copy_callback(cb: CallbackQuery, state: FSMContext):
+    parts = cb.data.split("_")
+    name = parts[1]
+    short_hash = parts[2]
+    
+    # Достаем реальный адрес из безопасного хранилища state по хэшу из кнопки
+    state_data = await state.get_data()
+    address_storage = state_data.get("address_storage", {})
+    full_address = address_storage.get(short_hash, "0xНеизвестно")
+    
+    if full_address == "0xНеизвестно":
+        await cb.answer("❌ Ошибка: данные устарели. Запустите поиск кошельков заново.", show_alert=True)
+        return
+        
+    try:
+        await add_to_copytrading(cb.from_user.id, name, full_address)
+        await cb.answer(f"✅ {name} добавлен в копитрейдинг!", show_alert=True)
+    except Exception as e:
+        logger.error(f"Ошибка добавления в базу копитрейдинга: {e}")
+        await cb.answer("❌ Не удалось сохранить кошелек в базу данных.", show_alert=True)
 
 # =====================================================================
 # УПРАВЛЕНИЕ КОПИТРЕЙДИНГОМ
@@ -177,21 +217,9 @@ async def process_manual_address(message: Message, state: FSMContext):
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚙️ В настройки", callback_data="menu_copy")]])
     await message.answer(f"✅ Адрес успешно внесен в базу копитрейдинга!\n`{address}`", reply_markup=kb, parse_mode="Markdown")
 
-@router.callback_query(F.data.startswith("addcopy_"))
-async def add_to_copy_callback(cb: CallbackQuery):
-    parts = cb.data.split("_")
-    name = parts[1]
-    short_hash = parts[2]
-    
-    full_address = cb.message.conf.get(short_hash, "0xНеизвестно") if hasattr(cb.message, 'conf') else "0xНеизвестно"
-    
-    await add_to_copytrading(cb.from_user.id, name, full_address)
-    await cb.answer(f"✅ {name} добавлен в копитрейдинг!", show_alert=True)
-
 @router.callback_query(F.data == "toggle_auto")
 async def toggle_auto_handler(cb: CallbackQuery):
     s = await get_settings(cb.from_user.id)
     new_val = 0 if s["auto_orders"] else 1
     await update_settings(cb.from_user.id, "auto_orders", new_val)
     await menu_copy_handler(cb)
-    
