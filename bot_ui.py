@@ -104,7 +104,6 @@ async def flipsearch_execute(cb: CallbackQuery):
     cb.message.conf = cb.message.conf if hasattr(cb.message, 'conf') else {}
     kb_list = []
     
-    # Чтобы кнопки не занимали пол-экрана, выводим по 2 штуки в ряд
     row = []
     for i, w in enumerate(wallets, 1):
         report += f"{i}. 👤 `{w['name']}`\n   • Вход: {w['price']} ({w['pot']})\n   • `{w['address']}`\n\n"
@@ -157,7 +156,10 @@ async def filters_execute(cb: CallbackQuery):
     await cb.answer()
     parts = cb.data.split("_")
     report = MARKET_DATA[parts[2]][parts[1]]
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data=f"cat_{parts[2] Beverly}")]])
+    
+    # Исправлено: корректный синтаксис f-строки для кнопки «Назад»
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data=f"cat_{parts[2]}")]] )
+    
     await cb.message.edit_text(report, reply_markup=kb, parse_mode="Markdown")
 
 # =====================================================================
@@ -232,4 +234,4 @@ async def toggle_auto_handler(cb: CallbackQuery):
     new_val = 0 if s["auto_orders"] else 1
     await update_settings(cb.from_user.id, "auto_orders", new_val)
     await menu_copy_handler(cb)
-    
+            
