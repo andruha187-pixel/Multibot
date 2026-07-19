@@ -13,7 +13,7 @@ class CopyStates(StatesGroup):
     input_address = State()
 
 # =====================================================================
-# ГЕНЕРАТОР УНИКАЛЬНЫХ ДАННЫХ (БЕЗ ДУБЛИРОВАНИЯ)
+# ГЕНЕРАТОР УНИКАЛЬНЫХ ДАННЫХ
 # =====================================================================
 def generate_mock_wallets(category, search_type):
     wallets = []
@@ -81,7 +81,7 @@ def get_main_keyboard():
 
 @router.message(Command("start"))
 async def start_cmd(message: Message, state: FSMContext):
-    await state.clear() # Полный сброс всех зависших состояний при старте
+    await state.clear()
     await message.answer("👋 Добро пожаловать в Polymarket Trading Suite Бот!\nВыберите нужный инструмент:", reply_markup=get_main_keyboard())
 
 @router.callback_query(F.data == "menu_main")
@@ -91,7 +91,7 @@ async def menu_main_handler(cb: CallbackQuery, state: FSMContext):
     await cb.message.edit_text("Выберите нужный инструмент:", reply_markup=get_main_keyboard())
 
 # =====================================================================
-# МОДУЛЬ ВЫБОРА КАТЕГОРИЙ И СТРАТЕГИЙ
+# ВЫБОР КАТЕГОРИЙ И СТРАТЕГИЙ
 # =====================================================================
 
 @router.callback_query(F.data == "menu_search")
@@ -111,29 +111,30 @@ async def menu_search_handler(cb: CallbackQuery, state: FSMContext):
 async def category_handler(cb: CallbackQuery, state: FSMContext):
     await state.clear()
     await cb.answer()
-    category = cb.data.split("_")[1].lower()
+    category = cb.data.replace("cat_", "")
     
-    # Абсолютно новые, чистые callback_data без кастомных разделителей
+    # Новые четкие callback_data формата: view:[стратегия]:[категория]
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 АВТОПОИСК (Идеальный фильтр)", callback_data=f"view_auto_{category}")],
-        [InlineKeyboardButton(text="🔥 ФЛИП (Разгон $100)", callback_data=f"view_flip_{category}")],
-        [InlineKeyboardButton(text="📊 Топ PnL", callback_data=f"view_pnl_{category}"), InlineKeyboardButton(text="🎯 Топ Winrate", callback_data=f"view_wr_{category}")],
+        [InlineKeyboardButton(text="🚀 АВТОПОИСК (Идеальный фильтр)", callback_data=f"view:auto:{category}")],
+        [InlineKeyboardButton(text="🔥 ФЛИП (Разгон $100)", callback_data=f"view:flip:{category}")],
+        [InlineKeyboardButton(text="📊 Топ PnL", callback_data=f"view:pnl:{category}"), InlineKeyboardButton(text="🎯 Топ Winrate", callback_data=f"view:wr:{category}")],
         [InlineKeyboardButton(text="🔙 К категориям", callback_data="menu_search")]
     ])
     await cb.message.edit_text(f"Категория: {category.upper()}\nВыберите стратегию поиска:", reply_markup=kb)
 
 # =====================================================================
-# УНИВЕРСАЛЬНЫЙ ОБРАБОТЧИК КНОПОК ПОИСКА
+# ТОЧНЫЙ ОБРАБОТЧИК КНОПОК ПОИСКА
 # =====================================================================
 
-@router.callback_query(F.data.startswith("view_"))
+@router.callback_query(F.data.startswith("view:"))
 async def execute_strategy(cb: CallbackQuery, state: FSMContext):
-    await state.clear() # Защита: сбрасываем ввод адреса при кликах по стратегиям
+    await state.clear()
     await cb.answer()
     
-    parts = cb.data.split("_")
+    # Разбиваем по двоеточию
+    parts = cb.data.split(":")
     strategy_type = parts[1] # auto, flip, pnl, wr
-    category = parts[2]      # crypto, politics, и т.д.
+    category = parts[2]      # crypto, politics, etc.
     
     wallets = MARKET_DATA[category][strategy_type]
     
@@ -146,7 +147,10 @@ async def execute_strategy(cb: CallbackQuery, state: FSMContext):
     
     report = headers.get(strategy_type, f"📋 **СПИСОК КОШЕЛЬКОВ ({category.upper()})**\n\n")
     
-    cb.message.conf = cb.message.conf if hasattr(cb.message, 'conf') else {}
+    # Инициализируем хранилище адресов в памяти сообщения, чтобы не потерять хэши
+    if not hasattr(cb.message, 'conf'):
+        cb.message.conf = {}
+        
     kb_list = []
     row = []
     
