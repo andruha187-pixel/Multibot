@@ -88,4 +88,4 @@ async def fetch_real_wallets(category: str, strategy_type: str):
     except Exception as e:
         logger.error(f"Ошибка при запросе к Polymarket API: {e}", exc_info=True)
         return []
-                                
+        
