@@ -123,7 +123,7 @@ async def category_handler(cb: CallbackQuery, state: FSMContext):
     await cb.message.edit_text(f"Категория: {category.upper()}\nВыберите стратегию поиска:", reply_markup=kb)
 
 # =====================================================================
-# ТОЧНЫЙ ОБРАБОТЧИК КНОПОК ПОИСКА С ЗАЩИТОЙ
+# ИСПРАВЛЕННЫЙ ОБРАБОТЧИК КНОПОК ПОИСКА (БЕЗ ИЗМЕНЕНИЯ MESSAGE)
 # =====================================================================
 
 @router.callback_query(F.data.startswith("view:"))
@@ -155,11 +155,11 @@ async def execute_strategy(cb: CallbackQuery, state: FSMContext):
         
         report = headers.get(strategy_type, f"📋 **СПИСОК КОШЕЛЬКОВ ({category.upper()})**\n\n")
         
-        if not hasattr(cb.message, 'conf') or cb.message.conf is None:
-            cb.message.conf = {}
-            
         kb_list = []
         row = []
+        
+        # Вместо message.conf сохраняем хэши адресов в FSM-state данные
+        temp_wallet_map = {}
         
         for i, w in enumerate(wallets, 1):
             if strategy_type == "flip":
@@ -170,7 +170,7 @@ async def execute_strategy(cb: CallbackQuery, state: FSMContext):
                 report += f"{i}. 👤 `{w['name']}`: {w['metric']}\n   • `{w['address']}`\n\n"
                 
             short_id = w['address'][-8:]
-            cb.message.conf[short_id] = w['address']
+            temp_wallet_map[short_id] = w['address']
             
             row.append(InlineKeyboardButton(text=f"➕ Копи #{i}", callback_data=f"addcopy_{w['name']}_{short_id}"))
             if len(row) == 2:
@@ -179,6 +179,9 @@ async def execute_strategy(cb: CallbackQuery, state: FSMContext):
                 
         if row:
             kb_list.append(row)
+
+        # Сохраняем сгенерированную карту адресов в state
+        await state.update_data(wallet_map=temp_wallet_map)
 
         kb_list.append([InlineKeyboardButton(text="🔙 Назад", callback_data=f"cat_{category}")])
         await cb.message.edit_text(report, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_list), parse_mode="Markdown")
@@ -244,13 +247,17 @@ async def process_manual_address(message: Message, state: FSMContext):
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚙️ В настройки", callback_data="menu_copy")]])
     await message.answer(f"✅ Адрес успешно внесен в базу копитрейдинга!\n`{address}`", reply_markup=kb, parse_mode="Markdown")
 
+# Обновленное добавление в копирование через FSM-data
 @router.callback_query(F.data.startswith("addcopy_"))
-async def add_to_copy_callback(cb: CallbackQuery):
+async def add_to_copy_callback(cb: CallbackQuery, state: FSMContext):
     parts = cb.data.split("_")
     name = parts[1]
     short_hash = parts[2]
     
-    full_address = cb.message.conf.get(short_hash, "0xНеизвестно") if hasattr(cb.message, 'conf') else "0xНеизвестно"
+    # Достаем карту адресов из безопасного контекста FSM
+    user_data = await state.get_data()
+    wallet_map = user_data.get("wallet_map", {})
+    full_address = wallet_map.get(short_hash, "0xНеизвестно")
     
     await add_to_copytrading(cb.from_user.id, name, full_address)
     await cb.answer(f"✅ {name} добавлен в копитрейдинг!", show_alert=True)
@@ -262,4 +269,4 @@ async def toggle_auto_handler(cb: CallbackQuery, state: FSMContext):
     new_val = 0 if s["auto_orders"] else 1
     await update_settings(cb.from_user.id, "auto_orders", new_val)
     await menu_copy_handler(cb, state)
-            
+    
