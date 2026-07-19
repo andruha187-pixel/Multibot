@@ -13,28 +13,57 @@ class CopyStates(StatesGroup):
     input_address = State()
 
 # =====================================================================
-# ГЕНЕРАТОР ТЕСТОВОЙ БАЗЫ ДАННЫХ (20 УНИКАЛЬНЫХ КОШЕЛЬКОВ)
+# ГЕНЕРАТОР УНИКАЛЬНЫХ ТЕСТОВЫХ ДАННЫХ ДЛЯ КАЖДОЙ КАТЕГОРИИ
 # =====================================================================
-def generate_mock_wallets(category_prefix, search_type):
+def generate_mock_wallets(category, search_type):
     wallets = []
+    # Базовые множители, чтобы данные в разделах кардинально отличались
+    multipliers = {
+        "crypto": {"pnl": 2.5, "wr": 12, "price": 0.50},
+        "politics": {"pnl": 1.8, "wr": 5, "price": 0.20},
+        "sports": {"pnl": 1.2, "wr": 8, "price": 0.15},
+        "esports": {"pnl": 0.9, "wr": 2, "price": 0.08},
+        "finance": {"pnl": 3.0, "wr": 15, "price": 0.80},
+        "economy": {"pnl": 1.5, "wr": 4, "price": 0.35},
+        "weather": {"pnl": 0.4, "wr": 1, "price": 0.05}
+    }
+    
+    mult = multipliers.get(category, {"pnl": 1.0, "wr": 5, "price": 0.10})
+    
     for i in range(1, 21):
         if search_type == "flip":
-            price = f"${0.05 + (i * 0.01):.2f}"
-            pot = f"{20.0 - (i * 0.7):.1f}x"
+            price_val = mult["price"] + (i * 0.02)
+            pot_val = 25.0 - (i * 0.9) - mult["wr"]
+            pot_val = max(pot_val, 1.5) # чтобы не уходило в минус
             wallets.append({
-                "name": f"{category_prefix}_Flip_{i}",
-                "address": f"0x{i:02d}81a169e{i:02d}7777777777777777777777777{i:02d}e7",
-                "price": price,
-                "pot": pot,
-                "desc": f"Снайпинг исходов #{i} в категории {category_prefix.upper()}"
+                "name": f"Sniper_{category}_{i}",
+                "address": f"0x{i:02d}F11P{i:02d}7777777777777777777777777{i:02d}aa",
+                "price": f"${price_val:.2f}",
+                "pot": f"{pot_val:.1f}x"
             })
-        else:
-            wr = 60 + (i % 24)
-            profit = 1500 + (i * 350)
+        elif search_type == "auto":
+            wr = max(55 + (i * 2) - mult["wr"], 40)
+            profit = int((2000 + (i * 400)) * mult["pnl"])
             wallets.append({
-                "name": f"{category_prefix}_Auto_{i}",
-                "address": f"0x{i:02d}81b169e{i:02d}8888888888888888888888888{i:02d}fa",
-                "metric": f"WR {wr}%, +${profit:,} ({10+i} сд/мес)"
+                "name": f"Auto_{category}_{i}",
+                "address": f"0x{i:02d}4UT0{i:02d}8888888888888888888888888{i:02d}bb",
+                "metric": f"WR {wr}%, +${profit:,}"
+            })
+        elif search_type == "pnl":
+            wr = max(78 - i, 50)
+            profit = int((160000 - (i * 6500)) * mult["pnl"])
+            wallets.append({
+                "name": f"Whale_{category}_{i}",
+                "address": f"0x{i:02d}PN1{i:02d}9999999999999999999999999{i:02d}cc",
+                "metric": f"+${profit:,} (WR: {wr}%)"
+            })
+        elif search_type == "wr":
+            wr = max(95 - (i // 2) - (mult["wr"] // 3), 60)
+            profit = int((6000 - (i * 250)) * mult["pnl"])
+            wallets.append({
+                "name": f"Alpha_{category}_{i}",
+                "address": f"0x{i:02d}WRR{i:02d}1111111111111111111111111{i:02d}dd",
+                "metric": f"WR {wr}% (+${profit:,})"
             })
     return wallets
 
@@ -43,8 +72,8 @@ for cat in ["crypto", "politics", "sports", "esports", "finance", "economy", "we
     MARKET_DATA[cat] = {
         "flip": generate_mock_wallets(cat, "flip"),
         "auto": generate_mock_wallets(cat, "auto"),
-        "pnl": f"📊 **Топ PnL ({cat.upper()})**\nПолноценный лидерборд парсера:\n" + "\n".join([f"{i}. `Whale_{cat}_{i}`: +${150000 - i*6000:,} (WR: {75-i}%)" for i in range(1, 21)]),
-        "wr": f"🎯 **Топ Winrate ({cat.upper()})**\nСамые стабильные аккаунты:\n" + "\n".join([f"{i}. `Sniper_{cat}_{i}`: WR {92 - i//2}% (+${5000 - i*200:,})" for i in range(1, 21)])
+        "pnl": generate_mock_wallets(cat, "pnl"),
+        "wr": generate_mock_wallets(cat, "wr")
     }
 
 def get_main_keyboard():
@@ -63,7 +92,7 @@ async def menu_main_handler(cb: CallbackQuery):
     await cb.message.edit_text("Выберите нужный инструмент:", reply_markup=get_main_keyboard())
 
 # =====================================================================
-# МОДУЛЬ ПОИСКА И СКАНИРОВАНИЯ (ИСПРАВЛЕН РЕГИСТР БУКВ)
+# МОДУЛЬ ВЫБОРА КАТЕГОРИЙ И СТРАТЕГИЙ
 # =====================================================================
 
 @router.callback_query(F.data == "menu_search")
@@ -81,98 +110,71 @@ async def menu_search_handler(cb: CallbackQuery):
 @router.callback_query(F.data.startswith("cat_"))
 async def category_handler(cb: CallbackQuery):
     await cb.answer()
-    category = cb.data.split("_")[1].lower() # Защита: переводим в нижний регистр
+    category = cb.data.split("_")[1].lower()
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 АВТОПОИСК (Идеальный фильтр)", callback_data=f"autosearch_{category}")],
-        [InlineKeyboardButton(text="🔥 ФЛИП (Разгон $100)", callback_data=f"flipsearch_{category}")],
-        [InlineKeyboardButton(text="📊 Топ PnL", callback_data=f"filter_pnl_{category}"), InlineKeyboardButton(text="🎯 Топ Winrate", callback_data=f"filter_wr_{category}")],
+        [InlineKeyboardButton(text="🚀 АВТОПОИСК (Идеальный фильтр)", callback_data=f"strategy_auto_{category}")],
+        [InlineKeyboardButton(text="🔥 ФЛИП (Разгон $100)", callback_data=f"strategy_flip_{category}")],
+        [InlineKeyboardButton(text="📊 Топ PnL", callback_data=f"strategy_pnl_{category}"), InlineKeyboardButton(text="🎯 Топ Winrate", callback_data=f"strategy_wr_{category}")],
         [InlineKeyboardButton(text="🔙 К категориям", callback_data="menu_search")]
     ])
     await cb.message.edit_text(f"Категория: {category.upper()}\nВыберите стратегию поиска:", reply_markup=kb)
 
 # =====================================================================
-# ВЫВОД РЕЗУЛЬТАТОВ ПОИСКА (ПАНЕЛЬ НА 20 КОШЕЛЬКОВ)
+# УНИВЕРСАЛЬНЫЙ ОТРИСОВЩИК СПИСКОВ С КНОПКАМИ КОПИРОВАНИЯ
 # =====================================================================
 
-@router.callback_query(F.data.startswith("flipsearch_"))
-async def flipsearch_execute(cb: CallbackQuery):
-    category = cb.data.split("_")[1].lower() # Фикс регистра для поиска в словаре
-    await cb.answer()
-    
-    if category not in MARKET_DATA:
-        await cb.message.answer("❌ Категория не найдена в базе данных.")
-        return
-        
-    wallets = MARKET_DATA[category]["flip"]
-    report = f"🔥 **РЕЗУЛЬТАТЫ «ФЛИП» ({category.upper()}) — ТОП 20**\n\n"
-    
-    cb.message.conf = cb.message.conf if hasattr(cb.message, 'conf') else {}
-    kb_list = []
-    row = []
-    
-    for i, w in enumerate(wallets, 1):
-        report += f"{i}. 👤 `{w['name']}`\n   • Вход: {w['price']} ({w['pot']})\n   • `{w['address']}`\n\n"
-        
-        short_id = w['address'][-8:]
-        cb.message.conf[short_id] = w['address']
-        
-        row.append(InlineKeyboardButton(text=f"➕ Копи #{i}", callback_data=f"addcopy_{w['name']}_{short_id}"))
-        if len(row) == 2:
-            kb_list.append(row)
-            row = []
-            
-    if row:
-        kb_list.append(row)
-
-    kb_list.append([InlineKeyboardButton(text="🔙 Назад", callback_data=f"cat_{category}")])
-    await cb.message.edit_text(report, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_list), parse_mode="Markdown")
-
-@router.callback_query(F.data.startswith("autosearch_"))
-async def autosearch_execute(cb: CallbackQuery):
-    category = cb.data.split("_")[1].lower() # Фикс регистра для поиска в словаре
-    await cb.answer()
-    
-    if category not in MARKET_DATA:
-        await cb.message.answer("❌ Категория не найдена в базе данных.")
-        return
-        
-    wallets = MARKET_DATA[category]["auto"]
-    report = f"🤖 **АВТОПОИСК ({category.upper()}) — ТОП 20**\n\n"
-    
-    cb.message.conf = cb.message.conf if hasattr(cb.message, 'conf') else {}
-    kb_list = []
-    row = []
-    
-    for i, w in enumerate(wallets, 1):
-        report += f"{i}. 👤 `{w['name']}` | {w['metric']}\n   • `{w['address']}`\n\n"
-        
-        short_id = w['address'][-8:]
-        cb.message.conf[short_id] = w['address']
-        
-        row.append(InlineKeyboardButton(text=f"➕ Копи #{i}", callback_data=f"addcopy_{w['name']}_{short_id}"))
-        if len(row) == 2:
-            kb_list.append(row)
-            row = []
-            
-    if row:
-        kb_list.append(row)
-
-    kb_list.append([InlineKeyboardButton(text="🔙 Назад", callback_data=f"cat_{category}")])
-    await cb.message.edit_text(report, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_list), parse_mode="Markdown")
-
-@router.callback_query(F.data.startswith("filter_"))
-async def filters_execute(cb: CallbackQuery):
+@router.callback_query(F.data.startswith("strategy_"))
+async def execute_strategy(cb: CallbackQuery):
     await cb.answer()
     parts = cb.data.split("_")
-    strategy = parts[1].lower()
-    category = parts[2].lower()
+    strategy_type = parts[1].lower()   # auto, flip, pnl, wr
+    category = parts[2].lower()        # crypto, politics, и т.д.
     
-    report = MARKET_DATA[category][strategy]
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data=f"cat_{category}")]])
-    await cb.message.edit_text(report, reply_markup=kb, parse_mode="Markdown")
+    if category not in MARKET_DATA or strategy_type not in MARKET_DATA[category]:
+        await cb.message.answer("❌ Данные структуры стратегии не найдены.")
+        return
+        
+    wallets = MARKET_DATA[category][strategy_type]
+    
+    # Красивые заголовки для разных типов
+    headers = {
+        "flip": f"🔥 **РЕЗУЛЬТАТЫ «ФЛИП» ({category.upper()}) — ТОП 20**\n\n",
+        "auto": f"🤖 **АВТОПОИСК ({category.upper()}) — ТОП 20**\n\n",
+        "pnl": f"📊 **ЛИДЕРБОРД ПО PnL ({category.upper()}) — ТОП 20**\n\n",
+        "wr": f"🎯 **СТАБИЛЬНЫЕ WINRATE КОШЕЛЬКИ ({category.upper()}) — ТОП 20**\n\n"
+    }
+    
+    report = headers.get(strategy_type, f"📋 **СПИСОК КОШЕЛЬКОВ ({category.upper()})**\n\n")
+    
+    cb.message.conf = cb.message.conf if hasattr(cb.message, 'conf') else {}
+    kb_list = []
+    row = []
+    
+    for i, w in enumerate(wallets, 1):
+        if strategy_type == "flip":
+            report += f"{i}. 👤 `{w['name']}`\n   • Вход: {w['price']} (Потенциал: {w['pot']})\n   • `{w['address']}`\n\n"
+        elif strategy_type == "auto":
+            report += f"{i}. 👤 `{w['name']}`\n   • Метрики: {w['metric']}\n   • `{w['address']}`\n\n"
+        else:
+            report += f"{i}. 👤 `{w['name']}`: {w['metric']}\n   • `{w['address']}`\n\n"
+            
+        short_id = w['address'][-8:]
+        cb.message.conf[short_id] = w['address']
+        
+        # Создаем интерактивную кнопку добавления для каждого из 20 кошельков
+        row.append(InlineKeyboardButton(text=f"➕ Копи #{i}", callback_data=f"addcopy_{w['name']}_{short_id}"))
+        if len(row) == 2:
+            kb_list.append(row)
+            row = []
+            
+    if row:
+        kb_list.append(row)
+
+    kb_list.append([InlineKeyboardButton(text="🔙 Назад", callback_data=f"cat_{category}")])
+    await cb.message.edit_text(report, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_list), parse_mode="Markdown")
 
 # =====================================================================
-# МОДУЛЬ КОПИТРЕЙДИНГА (БЕЗ УПОМИНАНИЯ ETHEREUM)
+# МОДУЛЬ КОПИТРЕЙДИНГА 
 # =====================================================================
 
 @router.callback_query(F.data == "menu_copy")
@@ -211,7 +213,6 @@ async def view_active_wallets_handler(cb: CallbackQuery):
 async def add_manual_handler(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
     await state.set_state(CopyStates.input_address)
-    # Исправлено: Спрашиваем только про Polygon (Polymarket) кошелек
     await cb.message.answer("📥 Отправьте в чат Polygon адрес кошелька Polymarket, который вы хотите копировать:")
 
 @router.message(CopyStates.input_address)
